@@ -1,0 +1,334 @@
+
+<!-- saved from url=(0055)http://ggp.stanford.edu/gamemaster/autoplayers/mcs.html -->
+<html><!--=======================================================================--><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+  <title>MCTS</title>
+  <script type="text/javascript" src="./old_MCTS_files/epilog.js"></script>
+  <script type="text/javascript" src="./old_MCTS_files/autoplayer.js"></script>
+  <script type="text/javascript">
+//==============================================================================
+// Player parameters
+//==============================================================================
+
+var player = 'mcts';
+var manager = 'manager';
+
+function doplayer ()
+ {player = read(prompt("What is your player's identifier?"));
+  document.getElementById('player').innerHTML = player;
+  return true}
+
+function domanager ()
+ {manager = read(prompt("What is your manager's identifier?"));
+  document.getElementById('manager').innerHTML = manager;
+  return true}
+
+//==============================================================================
+// End of player parameters
+//==============================================================================
+  </script>
+  <script type="text/javascript">
+//==============================================================================
+// Player code goes here
+//==============================================================================
+
+indexing = false;
+dataindexing = false;
+ruleindexing = true;
+
+function ping ()
+ {return 'ready'}
+
+function start (r,rs,sc,pc)
+ {role = r;
+  library = definemorerules([],rs.slice(1));
+  roles = findroles(library);
+  state = findinits(library);
+  startclock = sc;
+  playclock = pc;
+  //library = definemorerules([], groundrules(library))
+  startmcts(role);
+  return 'ready'}
+
+function play (move) {
+  console.log("Move is", move);
+  if (move!==nil){
+    state = updatemcts(move);
+    console.log("Tree after updating with move is", tree);
+  }
+  if (findcontrol(state,library)!==role) {return false};
+  return playmcts(role)}
+
+function stop (move)
+ {return false}
+
+function abort ()
+ {return false}
+
+//==============================================================================
+// mcts
+//==============================================================================
+
+var depthchargenum = 10;
+var tree = {};
+var c = 4;
+
+
+function updatemcts (move)
+ {if (move!=='nil') {tree = updatetree(move,tree)};
+  return tree.state}
+
+function updatetree (move,tree)
+ {if (tree.children.length===0)
+     {let newstate = simulate(move,tree.state,library);
+      let myturn = true;
+      if (findcontrol(newstate,library) != role){
+        myturn = false;
+      }
+      let newactions = findlegals(newstate, library);
+      return makenode(newstate, myturn, tree, newactions)};
+  for (let i=0; i<tree.actions.length; i++)
+      {if (equalp(move,tree.actions[i])) {return tree.children[i]}}
+  return tree}
+
+function startmcts (role){
+  let myturn = true;
+      if (findcontrol(state,library) != role){
+        myturn = false;
+      }
+  let newactions = findlegals(state, library)
+  tree = makenode(state, myturn, null, newactions);
+  }
+
+function playmcts (role)
+    {var deadline = Date.now()+(playclock-4)*1000; 
+  while (Date.now()<deadline) 
+    {process(tree)};
+  console.log("Tree before playing is", tree);
+  return selectaction(tree)}
+ 
+function process(tree){  
+    let chosen = select(tree);
+     if (findterminalp(chosen.state, library)){
+       let myturn = true;
+       let util = parseInt(findreward(role, chosen.state, library));
+       backpropagate(chosen, chosen.utility, library);
+     } else {
+    expand(chosen);
+    let result = 0;
+    for (let i = 0; i < depthchargenum; i++){
+        result += depthcharge(findcontrol(chosen.state, library), chosen.state);
+        
+    }
+    result = result / depthchargenum;
+    backpropagate(chosen, result);
+  }
+}
+
+function selectaction (node)
+ {let action = node.actions[0];
+  let score = ((node.children[0].utility) / node.children[0].visits);
+  for (let i=1; i<node.children.length; i++) {
+    let newscore = (node.children[i].utility / node.children[i].visits);
+    if (newscore>score) {
+      action = node.actions[i]; 
+      score = newscore}};     
+  return action}
+
+function depthcharge (role,state)
+ {if (findterminalp(state,library))
+     {return findreward(role,state,library)*1};
+  let active = findcontrol(state,library);
+  let actions = findlegals(state,library);
+  let best = randomindex(actions.length);
+  let newstate = simulate(actions[best],state,library);
+  return depthcharge(role,newstate)}
+
+  	
+function select (node) {
+  if (node.visits==0 || node.children.length == 0 || node.actions.length == 0) {
+    return node
+  };
+  for (let i=0; i<node.children.length; i++) {
+    if (node.children[i].visits==0) {
+        return node.children[i];
+    }
+  };
+    let score = -1000;
+    let result = node;
+    for (let j=0; j<node.children.length; j++) {
+       let isneg = 1;
+       if (node.myturn == false){
+         isneg = -1;
+       }
+       let newscore = selectfn(node.children[j], isneg);
+       if (newscore>score) {
+         score = newscore; result=node.children[j]
+        }
+     };
+    return select(result);
+  }  
+
+  
+function expand (node){
+  node.actions = findlegals(node.state, library);
+  for (let i=0; i<node.actions.length; i++) {
+      let newstate = simulate(node.actions[i], node.state, library);
+      let myturn = true;
+      if (findcontrol(newstate, library) != role) {
+        myturn = false;
+      }
+      let newactions =  findlegals(newstate,library);
+      let newnode = makenode(newstate, myturn, node, newactions);
+      node.children[i]=newnode;
+      };
+  return true
+}
+
+   	
+function backpropagate (node,score)
+ {node.visits = node.visits+1;
+  node.utility = node.utility + score;
+  if (node.parent) {backpropagate(node.parent,score)};
+  return true}
+
+function selectfn(node, isneg){
+  return node.utility/node.visits + isneg * c * Math.sqrt(Math.log(node.parent.visits)/node.visits)
+}
+
+function randomindex (n)
+ {return Math.floor(Math.random()*n)}
+
+ function makenode (state, turn, parent, newactions)
+ {return {state:state, myturn:turn, parent: parent, actions:newactions, children:[], visits:0, utility:0}}
+
+//==============================================================================
+// Basics
+//==============================================================================
+
+function findroles (rules)
+ {return compfinds('R',seq('role','R'),seq(),rules)}
+
+function findbases (rules)
+ {return compfinds('P',seq('base','P'),seq(),rules)}
+
+function findactions (rules)
+ {return compfinds('A',seq('action','A'),seq(),rules)}
+
+function findinits (rules)
+ {return compfinds('P',seq('init','P'),seq(),rules)}
+
+function findcontrol (facts,rules)
+ {return compfindx('X',seq('control','X'),facts,rules)}
+
+function findlegalp (move,facts,rules)
+ {return compfindp(seq('legal',move),facts,rules)}
+
+function findlegalx (facts,rules)
+ {return compfindx('X',seq('legal','X'),facts,rules)}
+
+function findlegals (facts,rules)
+ {return compfinds('X',seq('legal','X'),facts,rules)}
+
+function findreward (role,facts,rules)
+ {var value = compfindx('R',seq('goal',role,'R'),facts,rules);
+  if (value) {return value};
+  return 0}
+
+function findterminalp (facts,rules)
+ {return compfindp('terminal',facts,rules)}
+
+
+//------------------------------------------------------------------------------
+
+function simulate (move,state,rules)
+ {var deltas = compexpand(move,state,rules);
+  var additions = [];
+  var deletions = [];
+  for (let i=0; i<deltas.length; i++)
+      {if (symbolp(deltas[i])) {additions.push(deltas[i]); continue};
+       if (deltas[i][0]==='not') {deletions.push(deltas[i][1]); continue};
+       additions.push(deltas[i])};
+  var newstate = [];
+  for (i = 0; i<state.length; i++)
+      {if (find(state[i],additions)) {continue};
+       if (find(state[i],deletions)) {continue};
+       newstate.push(state[i])};
+  return newstate.concat(additions)}
+
+//==============================================================================
+// End of player code
+//==============================================================================
+  </script>
+</head>
+
+<!--=======================================================================-->
+
+<body bgcolor="#aabbbb">
+  <center>
+    <table width="720" cellspacing="0" cellpadding="40" bgcolor="#ffffff">
+      <tbody><tr>
+        <td>
+
+<!--=======================================================================-->
+
+<center>
+  <table width="640" cellpadding="0">
+    <tbody><tr>
+      <td width="180" align="center" valign="center">
+        <img width="130" src="./MCTS_files/ggp.jpg">
+      </td>
+      <td align="center">
+        <span style="font-size:18pt">&nbsp;</span>
+        <span style="font-size:32pt">Gamemaster</span><br>
+      </td>
+      <td width="180" align="center" style="color:#000066;font-size:18px">
+        <i>General<br>Game<br>Playing</i>
+      </td>
+    </tr>
+  </tbody></table>
+</center>
+
+<!--=======================================================================-->
+
+<br>
+<table width="640" cellpadding="8" cellspacing="0" border="1">
+  <tbody><tr height="40">
+     <td align="center">
+<table style="color:#000066;font-size:18px">
+  <tbody><tr>
+    <td>
+Protocol: autoplayer<br>
+Identifier: <span id="player">mcs</span> <img src="./MCTS_files/pencil.gif" onclick="doplayer()">
+    </td>
+  </tr>
+</tbody></table>
+    </td>
+  </tr>
+</tbody></table>
+<br>
+
+<!--=======================================================================-->
+
+<center>
+  <br>
+  <br>
+  <input type="button" id="clearer" value="Clear" onclick="doclear()">
+  <input type="button" id="connector" value="Connect" onclick="doconnect()">
+  <input type="button" id="disconnector" value="Disconnect" disabled="" onclick="dodisconnect()">
+  <br>
+  <br>
+  <textarea id="transcript" style="font-family:courier" rows="30" cols="80" readonly=""></textarea>
+</center>
+
+<!--=======================================================================-->
+
+        </td>
+      </tr>
+    </tbody></table>
+  </center>
+
+
+<!--=======================================================================-->
+
+
+</body></html>
